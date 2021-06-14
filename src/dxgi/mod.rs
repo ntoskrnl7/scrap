@@ -1,47 +1,39 @@
-use self::ffi::*;
-use std::{io, mem, ptr, slice};
+use std::{io, ptr, slice};
+
+use winapi::shared::dxgi::IDXGIAdapter;
+use winapi::shared::dxgi::IID_IDXGIFactory1;
+use winapi::shared::dxgi1_2::IID_IDXGIOutput1;
+use winapi::shared::minwindef::*;
+use winapi::shared::ntdef::LONG;
+use winapi::shared::winerror::*;
+use winapi::um::d3d11::ID3D11Resource;
+use winapi::um::unknwnbase::IUnknown;
 use winapi::{
-    HRESULT,
-    IDXGIAdapter1,
-    IDXGIFactory1,
-    IDXGIOutput1,
-    S_OK,
-    UINT,
-    DXGI_OUTPUT_DESC,
-    LONG,
-    DXGI_MODE_ROTATION,
-    ID3D11Device,
-    ID3D11DeviceContext,
-    IDXGIOutputDuplication,
-    D3D11_SDK_VERSION,
-    D3D_DRIVER_TYPE_UNKNOWN,
-    D3D_FEATURE_LEVEL_9_1,
-    DXGI_ERROR_ACCESS_LOST,
-    DXGI_ERROR_WAIT_TIMEOUT,
-    DXGI_ERROR_INVALID_CALL,
-    E_ACCESSDENIED,
-    DXGI_ERROR_UNSUPPORTED,
-    ID3D11Texture2D,
-    DXGI_ERROR_NOT_CURRENTLY_AVAILABLE,
-    DXGI_ERROR_SESSION_DISCONNECTED,
-    TRUE,
-    IDXGISurface,
-    IDXGIResource,
-    DXGI_RESOURCE_PRIORITY_MAXIMUM,
-    D3D11_CPU_ACCESS_READ,
-    D3D11_USAGE_STAGING
+    shared::{
+        dxgi::{
+            CreateDXGIFactory1, IDXGIFactory1, IDXGIResource, IDXGISurface, IID_IDXGISurface,
+            DXGI_MAP_READ, DXGI_OUTPUT_DESC, DXGI_RESOURCE_PRIORITY_MAXIMUM,
+        },
+        dxgi1_2::{IDXGIOutput1, IDXGIOutputDuplication},
+        dxgitype::DXGI_MODE_ROTATION,
+    },
+    um::{
+        d3d11::{
+            D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
+            IID_ID3D11Texture2D, D3D11_CPU_ACCESS_READ, D3D11_SDK_VERSION, D3D11_USAGE_STAGING,
+        },
+        d3dcommon::{D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL_9_1},
+    },
 };
-
-mod ffi;
-
-//TODO: Split up into files.
 
 pub struct Capturer {
     device: *mut ID3D11Device,
     context: *mut ID3D11DeviceContext,
     duplication: *mut IDXGIOutputDuplication,
-    fastlane: bool, surface: *mut IDXGISurface,
-    data: *mut u8, len: usize,
+    fastlane: bool,
+    surface: *mut IDXGISurface,
+    data: *mut u8,
+    len: usize,
     height: usize,
 }
 
@@ -50,31 +42,31 @@ impl Capturer {
         let mut device = ptr::null_mut();
         let mut context = ptr::null_mut();
         let mut duplication = ptr::null_mut();
-        let mut desc = unsafe { mem::uninitialized() };
-
+        let mut desc = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
         if unsafe {
             D3D11CreateDevice(
-                &mut **display.adapter,
+                display.adapter,
                 D3D_DRIVER_TYPE_UNKNOWN,
                 ptr::null_mut(), // No software rasterizer.
-                0, // No device flags.
+                0,               // No device flags.
                 ptr::null_mut(), // Feature levels.
-                0, // Feature levels' length.
+                0,               // Feature levels' length.
                 D3D11_SDK_VERSION,
                 &mut device,
-                &mut D3D_FEATURE_LEVEL_9_1,
-                &mut context
+                &mut {
+                    let level = D3D_FEATURE_LEVEL_9_1;
+                    level
+                },
+                &mut context,
             )
-        } != S_OK {
+        } != S_OK
+        {
             // Unknown error.
             return Err(io::ErrorKind::Other.into());
         }
 
         let res = wrap_hresult(unsafe {
-            (*display.inner).DuplicateOutput(
-                &mut **device,
-                &mut duplication
-            )
+            (*display.inner).DuplicateOutput(device as *mut IUnknown, &mut duplication)
         });
 
         if let Err(err) = res {
@@ -91,12 +83,14 @@ impl Capturer {
 
         Ok(unsafe {
             let mut capturer = Capturer {
-                device, context, duplication,
+                device,
+                context,
+                duplication,
                 fastlane: desc.DesktopImageInSystemMemory == TRUE,
                 surface: ptr::null_mut(),
                 height: display.height() as usize,
                 data: ptr::null_mut(),
-                len: 0
+                len: 0,
             };
             let _ = capturer.load_frame(0);
             capturer
@@ -105,20 +99,14 @@ impl Capturer {
 
     unsafe fn load_frame(&mut self, timeout: UINT) -> io::Result<()> {
         let mut frame = ptr::null_mut();
-        let mut info = mem::uninitialized();
+        let mut info = std::mem::MaybeUninit::uninit().assume_init();
         self.data = ptr::null_mut();
 
-        wrap_hresult((*self.duplication).AcquireNextFrame(
-            timeout,
-            &mut info,
-            &mut frame
-        ))?;
+        wrap_hresult((*self.duplication).AcquireNextFrame(timeout, &mut info, &mut frame))?;
 
         if self.fastlane {
-            let mut rect = mem::uninitialized();
-            let res = wrap_hresult(
-                (*self.duplication).MapDesktopSurface(&mut rect)
-            );
+            let mut rect = std::mem::MaybeUninit::uninit().assume_init();
+            let res = wrap_hresult((*self.duplication).MapDesktopSurface(&mut rect));
 
             (*frame).Release();
 
@@ -133,11 +121,8 @@ impl Capturer {
             self.surface = ptr::null_mut();
             self.surface = self.ohgodwhat(frame)?;
 
-            let mut rect = mem::uninitialized();
-            wrap_hresult((*self.surface).Map(
-                &mut rect,
-                DXGI_MAP_READ
-            ))?;
+            let mut rect = std::mem::MaybeUninit::uninit().assume_init();
+            wrap_hresult((*self.surface).Map(&mut rect, DXGI_MAP_READ))?;
 
             self.data = rect.pBits;
             self.len = self.height * rect.Pitch as usize;
@@ -145,29 +130,26 @@ impl Capturer {
         }
     }
 
-    unsafe fn ohgodwhat(
-        &mut self,
-        frame: *mut IDXGIResource
-    ) -> io::Result<*mut IDXGISurface> {
+    unsafe fn ohgodwhat(&mut self, frame: *mut IDXGIResource) -> io::Result<*mut IDXGISurface> {
         let mut texture: *mut ID3D11Texture2D = ptr::null_mut();
         (*frame).QueryInterface(
-            &IID_ID3D11TEXTURE2D,
-            &mut texture as *mut *mut _ as *mut *mut _
+            &IID_ID3D11Texture2D,
+            &mut texture as *mut *mut _ as *mut *mut _,
         );
 
-        let mut texture_desc = mem::uninitialized();
+        let mut texture_desc = std::mem::MaybeUninit::uninit().assume_init();
         (*texture).GetDesc(&mut texture_desc);
 
         texture_desc.Usage = D3D11_USAGE_STAGING;
         texture_desc.BindFlags = 0;
-        texture_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0;
+        texture_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         texture_desc.MiscFlags = 0;
 
         let mut readable = ptr::null_mut();
         let res = wrap_hresult((*self.device).CreateTexture2D(
             &mut texture_desc,
             ptr::null(),
-            &mut readable
+            &mut readable,
         ));
 
         if let Err(err) = res {
@@ -180,13 +162,12 @@ impl Capturer {
 
             let mut surface = ptr::null_mut();
             (*readable).QueryInterface(
-                &IID_IDXGISURFACE,
-                &mut surface as *mut *mut _ as *mut *mut _
+                &IID_IDXGISurface,
+                &mut surface as *mut *mut _ as *mut *mut _,
             );
-
             (*self.context).CopyResource(
-                &mut **readable,
-                &mut **texture
+                readable as *mut ID3D11Resource,
+                texture as *mut ID3D11Resource,
             );
 
             (*frame).Release();
@@ -238,31 +219,29 @@ impl Drop for Capturer {
 
 pub struct Displays {
     factory: *mut IDXGIFactory1,
-    adapter: *mut IDXGIAdapter1,
+    adapter: *mut IDXGIAdapter,
     /// Index of the CURRENT adapter.
     nadapter: UINT,
     /// Index of the NEXT display to fetch.
-    ndisplay: UINT
+    ndisplay: UINT,
 }
 
 impl Displays {
     pub fn new() -> io::Result<Displays> {
         let mut factory = ptr::null_mut();
-        wrap_hresult(unsafe {
-            CreateDXGIFactory1(&IID_IDXGIFACTORY1, &mut factory)
-        })?;
-
+        wrap_hresult(unsafe { CreateDXGIFactory1(&IID_IDXGIFactory1, &mut factory) })?;
+        let factory = factory.cast::<IDXGIFactory1>();
         let mut adapter = ptr::null_mut();
         unsafe {
             // On error, our adapter is null, so it's fine.
-            (*factory).EnumAdapters1(0, &mut adapter);
+            (*factory).EnumAdapters(0, &mut adapter);
         };
 
         Ok(Displays {
             factory,
             adapter,
             nadapter: 0,
-            ndisplay: 0
+            ndisplay: 0,
         })
     }
 
@@ -302,7 +281,7 @@ impl Displays {
         // We get the display's details.
 
         let desc = unsafe {
-            let mut desc = mem::uninitialized();
+            let mut desc = std::mem::MaybeUninit::uninit().assume_init();
             (*output).GetDesc(&mut desc);
             desc
         };
@@ -311,17 +290,13 @@ impl Displays {
 
         let mut inner = ptr::null_mut();
         unsafe {
-            (*output).QueryInterface(
-                &IID_IDXGIOUTPUT1,
-                &mut inner as *mut *mut _ as *mut *mut _
-            );
+            (*output).QueryInterface(&IID_IDXGIOutput1, &mut inner as *mut *mut _ as *mut *mut _);
             (*output).Release();
         }
 
         // If it's null, we have an error.
         // So we act like the adapter is done.
-
-        if inner.is_null() {
+        if inner == ptr::null_mut() {
             unsafe {
                 (*self.adapter).Release();
                 self.adapter = ptr::null_mut();
@@ -333,7 +308,11 @@ impl Displays {
             (*self.adapter).AddRef();
         }
 
-        Some(Some(Display { inner, adapter: self.adapter, desc }))
+        Some(Some(Display {
+            inner,
+            adapter: self.adapter,
+            desc,
+        }))
     }
 }
 
@@ -350,10 +329,7 @@ impl Iterator for Displays {
 
             self.adapter = unsafe {
                 let mut adapter = ptr::null_mut();
-                (*self.factory).EnumAdapters1(
-                    self.nadapter,
-                    &mut adapter
-                );
+                (*self.factory).EnumAdapters(self.nadapter, &mut adapter);
                 adapter
             };
 
@@ -380,19 +356,17 @@ impl Drop for Displays {
 
 pub struct Display {
     inner: *mut IDXGIOutput1,
-    adapter: *mut IDXGIAdapter1,
-    desc: DXGI_OUTPUT_DESC
+    adapter: *mut IDXGIAdapter,
+    desc: DXGI_OUTPUT_DESC,
 }
 
 impl Display {
     pub fn width(&self) -> LONG {
-        self.desc.DesktopCoordinates.right -
-        self.desc.DesktopCoordinates.left
+        self.desc.DesktopCoordinates.right - self.desc.DesktopCoordinates.left
     }
 
     pub fn height(&self) -> LONG {
-        self.desc.DesktopCoordinates.bottom -
-        self.desc.DesktopCoordinates.top
+        self.desc.DesktopCoordinates.bottom - self.desc.DesktopCoordinates.top
     }
 
     pub fn rotation(&self) -> DXGI_MODE_ROTATION {
@@ -401,9 +375,7 @@ impl Display {
 
     pub fn name(&self) -> &[u16] {
         let s = &self.desc.DeviceName;
-        let i = s.iter()
-            .position(|&x| x == 0)
-            .unwrap_or(s.len());
+        let i = s.iter().position(|&x| x == 0).unwrap_or(s.len());
         &s[..i]
     }
 }
@@ -428,6 +400,7 @@ fn wrap_hresult(x: HRESULT) -> io::Result<()> {
         DXGI_ERROR_UNSUPPORTED => ConnectionRefused,
         DXGI_ERROR_NOT_CURRENTLY_AVAILABLE => Interrupted,
         DXGI_ERROR_SESSION_DISCONNECTED => ConnectionAborted,
-        _ => Other
-    }).into())
+        _ => Other,
+    })
+    .into())
 }

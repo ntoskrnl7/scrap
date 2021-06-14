@@ -1,18 +1,18 @@
 [package]
 name = "scrap"
 description = "Screen capture made easy."
-version = "0.5.0"
-repository = "https://github.com/quadrupleslap/scrap"
+version = "0.6.0"
+repository = "https://github.com/ntoskrnl7/scrap"
 documentation = "https://docs.rs/scrap"
 keywords = ["screen", "capture", "record"]
 license = "MIT"
-authors = ["Ram <quadrupleslap@gmail.com>"]
+authors = ["Ram <quadrupleslap@gmail.com>, Jung-kwang Lee <ntoskrnl7@gmail.com>"]
 
 [dependencies]
 block = "0.1"
-cfg-if = "0.1"
+cfg-if = "1.0.0"
 libc = "0.2"
-winapi = "0.2"
+winapi = { version = "0.3.9", features = ["d3d11", "dxgi", "dxgi1_2", "winerror"] }
 
 [dev-dependencies]
 repng = "0.2"

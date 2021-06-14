@@ -1,3 +1,11 @@
+pub enum Orientation {
+    Unknown = 0,
+    Default = 1,
+    Rotate90 = 2,
+    Rotate180 = 3,
+    Rotate270 = 4,
+}
+
 cfg_if! {
     if #[cfg(quartz)] {
         mod quartz;
