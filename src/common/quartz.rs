@@ -1,3 +1,4 @@
+use crate::Orientation;
 use quartz;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex, TryLockError};

@@ -1,4 +1,4 @@
-use std::{io, ptr, slice};
+use std::{io, mem, ptr, slice};
 
 use winapi::shared::dxgi::IDXGIAdapter;
 use winapi::shared::dxgi::IID_IDXGIFactory1;
@@ -42,7 +42,7 @@ impl Capturer {
         let mut device = ptr::null_mut();
         let mut context = ptr::null_mut();
         let mut duplication = ptr::null_mut();
-        let mut desc = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+        let mut desc = unsafe { mem::MaybeUninit::uninit().assume_init() };
         if unsafe {
             D3D11CreateDevice(
                 display.adapter,
@@ -99,13 +99,13 @@ impl Capturer {
 
     unsafe fn load_frame(&mut self, timeout: UINT) -> io::Result<()> {
         let mut frame = ptr::null_mut();
-        let mut info = std::mem::MaybeUninit::uninit().assume_init();
+        let mut info = mem::MaybeUninit::uninit().assume_init();
         self.data = ptr::null_mut();
 
         wrap_hresult((*self.duplication).AcquireNextFrame(timeout, &mut info, &mut frame))?;
 
         if self.fastlane {
-            let mut rect = std::mem::MaybeUninit::uninit().assume_init();
+            let mut rect = mem::MaybeUninit::uninit().assume_init();
             let res = wrap_hresult((*self.duplication).MapDesktopSurface(&mut rect));
 
             (*frame).Release();
@@ -121,7 +121,7 @@ impl Capturer {
             self.surface = ptr::null_mut();
             self.surface = self.ohgodwhat(frame)?;
 
-            let mut rect = std::mem::MaybeUninit::uninit().assume_init();
+            let mut rect = mem::MaybeUninit::uninit().assume_init();
             wrap_hresult((*self.surface).Map(&mut rect, DXGI_MAP_READ))?;
 
             self.data = rect.pBits;
@@ -137,7 +137,7 @@ impl Capturer {
             &mut texture as *mut *mut _ as *mut *mut _,
         );
 
-        let mut texture_desc = std::mem::MaybeUninit::uninit().assume_init();
+        let mut texture_desc = mem::MaybeUninit::uninit().assume_init();
         (*texture).GetDesc(&mut texture_desc);
 
         texture_desc.Usage = D3D11_USAGE_STAGING;
@@ -281,7 +281,7 @@ impl Displays {
         // We get the display's details.
 
         let desc = unsafe {
-            let mut desc = std::mem::MaybeUninit::uninit().assume_init();
+            let mut desc = mem::MaybeUninit::uninit().assume_init();
             (*output).GetDesc(&mut desc);
             desc
         };
