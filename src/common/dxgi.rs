@@ -1,8 +1,7 @@
+use crate::Orientation;
 use dxgi;
 use std::io::ErrorKind::{NotFound, TimedOut, WouldBlock};
 use std::{io, ops};
-
-use crate::Orientation;
 
 pub struct Capturer {
     inner: dxgi::Capturer,

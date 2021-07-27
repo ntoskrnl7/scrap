@@ -1,3 +1,4 @@
+use crate::Orientation;
 use std::rc::Rc;
 use std::{io, ops};
 use x11;
